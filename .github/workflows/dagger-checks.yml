@@ -17,8 +17,15 @@ name: Dagger Checks
 
 on:
   push:
+    # The long-lived integration branch — repo-declared, not machinery-assumed.
+    # Every merge here builds once and publishes staging:sha-<commit>.
     branches: [ours]
-  pull_request:
+  # NOTE: no pull_request trigger for now. This workflow's build leg publishes
+  # the gated image to the staging repo (the promotable artifact pool), and a PR
+  # build must never put an unmerged commit there. When the candidate lane is
+  # built, PRs publish to a SEPARATE candidates repo instead, and PR triggering
+  # returns. Until then PRs are built ad hoc via this workflow's own dispatch on
+  # the PR branch (which would publish — so don't).
   workflow_dispatch:
     inputs:
       deep_scan:

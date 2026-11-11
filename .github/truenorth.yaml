@@ -36,7 +36,12 @@ checks:
   build:
     enabled: true
     mode: blocking
-    tier: heavy
+    # tier: fast — the build runs on EVERY push/merge to the long-lived branch,
+    # not only on a deep_scan dispatch. Doctrine: every commit on the integration
+    # branch is a release candidate, so every merge is built exactly once and
+    # published as staging:sha-<commit>. (Heavy tier would make build opt-in and
+    # leave merges unbuilt — "release candidate" in name only.)
+    tier: fast
     plane: build
     applies: [rust]
     module: github.com/snoby-demo-org/dagger-checks-rust@v0.1.0
@@ -79,3 +84,8 @@ rust-build:
   dockerfile: docker/Dockerfile.ours
   target: builder
   artifact_path: /tmp/xelis-build/target/release/xelis_daemon
+  # Build-once-promote-everywhere: the gated image is pushed by digest as
+  # <repo>:sha-<commit> BEFORE anything downstream exists. Kargo (dev -> preprod
+  # -> prod) only ever COPIES this digest — nothing is rebuilt after the merge.
+  # This tag is the only promotable artifact; git tags are labels, not triggers.
+  publish: zot.viporlab.net/demo/xelis-staging
