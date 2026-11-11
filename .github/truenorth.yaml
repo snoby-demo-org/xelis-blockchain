@@ -88,4 +88,4 @@ rust-build:
   # <repo>:sha-<commit> BEFORE anything downstream exists. Kargo (dev -> preprod
   # -> prod) only ever COPIES this digest — nothing is rebuilt after the merge.
   # This tag is the only promotable artifact; git tags are labels, not triggers.
-  publish: zot.viporlab.net/demo/xelis-staging
+  publish: registry.viporlab.net/demo/xelis-staging
