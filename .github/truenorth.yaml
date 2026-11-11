@@ -66,6 +66,11 @@ rust-build:
   # binary target named 'daemon'" — the bins are xelis_daemon/xelis_miner/xelis_wallet.
   app: xelis_daemon
   binary: xelis_daemon
-  dockerfile: Dockerfile
+  # Fork-owned Dockerfile: upstream's is pristine for conflict-free upstream
+  # merges. Same stage names (chef/planner/builder/runtime); the runtime stage
+  # is debian:12-slim + security upgrade because the distroless base shipped
+  # libssl3 3.0.20 and the syft+grype gate hard-failed on fixable CVEs
+  # (CVE-2026-75803 critical) — fix the base, don't weaken the gate.
+  dockerfile: docker/Dockerfile.ours
   target: builder
   artifact_path: /tmp/xelis-build/target/release/xelis_daemon

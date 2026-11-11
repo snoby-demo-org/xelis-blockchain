@@ -73,7 +73,7 @@ jobs:
           echo "VER=$VER" >> "$GITHUB_ENV"
           echo "APP=$APP" >> "$GITHUB_ENV"
           docker buildx build \
-            -f Dockerfile \
+            -f docker/Dockerfile.ours \
             --build-arg app="$APP" \
             --build-arg commit_hash="${{ github.sha }}" \
             -t "registry.viporlab.net/demo/xelis:${VER}-${SHORT}" \
