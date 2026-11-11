@@ -20,7 +20,10 @@ name: Release Image
 on:
   push:
     tags:
-      - 'v*.*.*'
+      # Fork-specific prefix: upstream's docker-publish.yml triggers on `v**`
+      # tags and would push xelis/* images on any plain v-tag. `ours-v*` keeps
+      # the two disjoint; VER strips the prefix.
+      - 'ours-v*.*.*'
   workflow_dispatch:
     inputs:
       tag:
@@ -67,7 +70,8 @@ jobs:
 
       - name: Build and push (dual registry, registry cache)
         run: |
-          VER="${{ github.event.inputs.tag || github.ref_name }}"
+          RAW="${{ github.event.inputs.tag || github.ref_name }}"
+          VER="${RAW#ours-}"
           APP="${{ matrix.bin }}"
           SHORT="${{ matrix.name }}"
           echo "VER=$VER" >> "$GITHUB_ENV"
