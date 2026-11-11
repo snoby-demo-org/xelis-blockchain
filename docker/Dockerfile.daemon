@@ -1,0 +1,90 @@
+# Fork-owned daemon image — upstream's Dockerfile stays pristine on `ours` so
+# upstream-sync merges stay conflict-free.
+#
+# Origin: ported from the ethpow build tree (xelis-blockchainV3 Docker.daemon /
+# Dockerfile.vipor, 2026-11-11), then hardened for the TrueNorth image gate:
+#
+#  * runtime stage is debian:12-slim + full `apt-get upgrade` instead of
+#    gcr.io/distroless/cc-debian12. Distroless ships libssl3 3.0.20 and the
+#    syft+grype gate (fail_on high,critical) hard-failed on fixable CVEs
+#    (CVE-2026-75803 critical + 3 high, fixed in libssl3 3.0.22).
+#  * `-C target-cpu=generic` (was a hand-edit of upstream's .cargo/config.toml
+#    on ethpow). Kept as ENV here so the tracked file stays pristine — no
+#    AVX-512/AVX2 leakage into images that must run on mixed deployment hosts.
+#  * curl + jq and the ops scripts from the ethpow tree: the container-based
+#    RPC tooling (daemon.sh) and the docker HEALTHCHECK (healthcheck.sh) both
+#    need them. The ethpow Dockerfiles pinned cargo-chef rust-1.77.1, which is
+#    too old for this workspace; the chef image below is the current one.
+FROM lukemathwalker/cargo-chef:0.1.77-rust-slim-trixie AS chef
+
+ENV BUILD_DIR=/tmp/xelis-build
+# Portability: build for the generic x86-64 baseline, not the build host CPU.
+ENV RUSTFLAGS="-C target-cpu=generic"
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      clang cmake libclang-dev pkg-config libssl-dev \
+ && rm -rf /var/lib/apt/lists/*
+RUN mkdir -p $BUILD_DIR
+WORKDIR $BUILD_DIR
+
+# ---
+
+FROM chef AS planner
+
+ARG app
+
+COPY . .
+RUN cargo chef prepare --recipe-path recipe.json --bin $app
+
+# ---
+
+FROM chef AS builder
+
+ARG app
+ARG commit_hash
+
+COPY --from=planner /tmp/xelis-build/recipe.json recipe.json
+RUN cargo chef cook --release --recipe-path recipe.json --bin $app
+
+# Copy the whole workspace: the daemon depends on several member crates, and a
+# partial copy is why a bare `COPY xelis_common ./xelis_common` setup breaks on
+# upstream bumps.
+COPY . .
+
+RUN XELIS_COMMIT_HASH=${commit_hash} cargo build --release --bin $app
+
+# ---
+
+FROM debian:12-slim AS runtime
+
+ARG app
+
+RUN apt-get update \
+ && apt-get -y upgrade \
+ && apt-get install -y --no-install-recommends ca-certificates curl jq \
+ && rm -rf /var/lib/apt/lists/*
+
+ENV APP_DIR=/var/run/xelis
+ENV DATA_DIR=$APP_DIR/data
+ENV BINARY=$APP_DIR/xelis
+
+LABEL org.opencontainers.image.authors="Slixe <slixeprivate@gmail.com>"
+
+COPY --from=builder /tmp/xelis-build/target/release/$app $BINARY
+
+# Ops scripts from the ethpow build tree (kept out of the checkout root so the
+# upstream tree stays clean): daemon.sh = RPC CLI, healthcheck.sh = docker probe.
+COPY docker/daemon.sh /usr/local/bin/daemon.sh
+COPY docker/healthcheck.sh /usr/local/bin/healthcheck.sh
+RUN chmod +x /usr/local/bin/daemon.sh /usr/local/bin/healthcheck.sh
+
+# The ethpow orchestration relies on this probe (height advanced vs previous
+# sample + block template present + node at least at the seed node's height).
+HEALTHCHECK --interval=30s --timeout=10s --retries=3 CMD /usr/local/bin/healthcheck.sh
+
+WORKDIR $DATA_DIR
+
+# Rest API + RPC defaults; override with -e / compose as needed.
+EXPOSE 8080 8079
+
+ENTRYPOINT ["/var/run/xelis/xelis"]

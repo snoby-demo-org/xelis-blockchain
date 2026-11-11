@@ -44,7 +44,16 @@ checks:
     tier: fast
     plane: build
     applies: [rust]
-    module: github.com/snoby-demo-org/dagger-checks-rust@v0.1.0
+    module: github.com/snoby-demo-org/dagger-checks-rust@v0.2.1
+    # Two images per commit (daemon + wallet), one runner pod each; both digests
+    # belong to the SAME Freight, so a promotion carries the variant->digest set
+    # and prod is only reachable when both are green (doctrine: commit is the
+    # release unit, variants are the multiplicity beneath it). Per-variant
+    # overrides live in rust-build.variants below. The miner is NOT built here —
+    # it has no deployment and the wallet/daemon pair is what ethpow runs.
+    matrix:
+      daemon: {}
+      wallet: {}
     scan:
       enabled: true
       fail_on: high,critical
@@ -54,12 +63,12 @@ checks:
   test:              { enabled: false, mode: blocking, tier: fast, plane: test,  applies: [any] }
   # clippy compiles the workspace; enable advisory once a cold baseline exists.
   lint:              { enabled: false, mode: advisory, tier: fast, plane: build, applies: [rust],
-                       module: github.com/snoby-demo-org/dagger-checks-rust@v0.1.0 }
+                       module: github.com/snoby-demo-org/dagger-checks-rust@v0.2.1 }
   # cargo fmt --check needs no compile, but upstream is not rustfmt-clean
   # (8121 diffs measured 2026-11-11) — enable once the workspace is formatted;
   # the module's format function is proven working against it.
   format:            { enabled: false, mode: advisory, tier: fast, plane: build, applies: [rust],
-                       module: github.com/snoby-demo-org/dagger-checks-rust@v0.1.0 }
+                       module: github.com/snoby-demo-org/dagger-checks-rust@v0.2.1 }
   sast:              { enabled: false, mode: advisory, tier: fast, plane: build, applies: [any] }
   coverage:          { enabled: false, mode: advisory, tier: fast, plane: test,  applies: [any] }
   sbom:              { enabled: false, mode: advisory, tier: fast, plane: build, applies: [any] }
@@ -81,11 +90,32 @@ rust-build:
   # is debian:12-slim + security upgrade because the distroless base shipped
   # libssl3 3.0.20 and the syft+grype gate hard-failed on fixable CVEs
   # (CVE-2026-75803 critical) — fix the base, don't weaken the gate.
-  dockerfile: docker/Dockerfile.ours
+  # Ported from ethpow's deploy tree (Docker.daemon/Dockerfile.vipor): debian
+  # runtime + curl/jq + daemon.sh/healthcheck.sh are what the deployed
+  # containers actually use. Hardened vs that tree: debian:12-slim + upgrade
+  # (their bookworm/trixie bases had fixable libssl3 CVEs) and generic
+  # target-cpu, so images run on mixed hosts.
+  dockerfile: docker/Dockerfile.daemon
   target: builder
   artifact_path: /tmp/xelis-build/target/release/xelis_daemon
   # Build-once-promote-everywhere: the gated image is pushed by digest as
   # <repo>:sha-<commit> BEFORE anything downstream exists. Kargo (dev -> preprod
   # -> prod) only ever COPIES this digest — nothing is rebuilt after the merge.
   # This tag is the only promotable artifact; git tags are labels, not triggers.
-  publish: registry.viporlab.net/demo/xelis-staging
+  # One publish repo PER IMAGE: the staging tag stays a plain sha-<commit>, so
+  # Kargo can track each image in its own Warehouse subscription without a
+  # suffix scheme (`tag_suffix: true` exists for repos that share one repo).
+  publish: registry.viporlab.net/demo/xelis-daemon-staging
+  # Per-image overrides. `daemon` is the default above (empty overlay); `wallet`
+  # is the second artifact built from the same commit. Wallet image = ethpow's
+  # Dockerfile.wallet intent (toolchain deps present, minimal runtime, no
+  # HEALTHCHECK) on the hardened debian:12-slim base.
+  variants:
+    daemon: {}
+    wallet:
+      app: xelis_wallet
+      binary: xelis_wallet
+      dockerfile: docker/Dockerfile.wallet
+      target: builder
+      artifact_path: /tmp/xelis-build/target/release/xelis_wallet
+      publish: registry.viporlab.net/demo/xelis-wallet-staging

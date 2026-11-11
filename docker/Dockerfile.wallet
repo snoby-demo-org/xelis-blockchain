@@ -1,17 +1,21 @@
-# Fork-owned release Dockerfile — upstream's Dockerfile is kept pristine on
-# `ours` so upstream-sync merges stay conflict-free.
+# Fork-owned wallet image — mirrors docker/Dockerfile.daemon (see the rationale
+# header there: upstream Dockerfile stays pristine, debian:12-slim + upgrade for
+# the grype gate, generic target-cpu, ethpow's toolchain deps).
 #
-# Difference vs upstream: the runtime stage is debian:12-slim with a full
-# security upgrade instead of gcr.io/distroless/cc-debian12. The distroless
-# base ships libssl3 3.0.20, and the TrueNorth image-scan gate
-# (syft+grype, fail_on high,critical) hard-failed on fixable CVEs
-# (CVE-2026-75803 critical + 3 high, all fixed in libssl3 3.0.22). Upgrading
-# inside the runtime stage keeps the gate honest instead of weakening it.
+# Differences from the daemon image, matching the ethpow Dockerfile.wallet:
+#  * no HEALTHCHECK / daemon.sh — the wallet exposes a different RPC surface and
+#    the ethpow orchestration does not probe it.
+#  * runtime stays minimal (ca-certificates only): the wallet is a client-side
+#    process, so curl/jq are not needed and every added package is another CVEs
+#    surface for the gate.
 FROM lukemathwalker/cargo-chef:0.1.77-rust-slim-trixie AS chef
 
 ENV BUILD_DIR=/tmp/xelis-build
+ENV RUSTFLAGS="-C target-cpu=generic"
 
-RUN apt-get update && apt-get install -y clang cmake libclang-dev
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      clang cmake libclang-dev pkg-config libssl-dev \
+ && rm -rf /var/lib/apt/lists/*
 RUN mkdir -p $BUILD_DIR
 WORKDIR $BUILD_DIR
 
@@ -34,11 +38,7 @@ ARG commit_hash
 COPY --from=planner /tmp/xelis-build/recipe.json recipe.json
 RUN cargo chef cook --release --recipe-path recipe.json --bin $app
 
-COPY Cargo.toml Cargo.lock ./
-COPY xelis_common ./xelis_common
-COPY xelis_wallet ./xelis_wallet
-COPY xelis_miner ./xelis_miner
-COPY xelis_daemon ./xelis_daemon
+COPY . .
 
 RUN XELIS_COMMIT_HASH=${commit_hash} cargo build --release --bin $app
 
@@ -62,5 +62,7 @@ LABEL org.opencontainers.image.authors="Slixe <slixeprivate@gmail.com>"
 COPY --from=builder /tmp/xelis-build/target/release/$app $BINARY
 
 WORKDIR $DATA_DIR
+
+EXPOSE 8080
 
 ENTRYPOINT ["/var/run/xelis/xelis"]

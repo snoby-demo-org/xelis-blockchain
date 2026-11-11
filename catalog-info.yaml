@@ -11,7 +11,7 @@ metadata:
     github.com/project-slug: snoby-demo-org/xelis-blockchain
     backstage.io/source-location: url:https://github.com/snoby-demo-org/xelis-blockchain/tree/ours/
     truenorth.io/pipeline: snoby-demo-org/goldenpath/.github/workflows/truenorth.yml@truenorth-v2.9
-    truenorth.io/build-module: github.com/snoby-demo-org/dagger-checks-rust@v0.1.0
+    truenorth.io/build-module: github.com/snoby-demo-org/dagger-checks-rust@v0.2.1
 spec:
   type: service
   lifecycle: production
