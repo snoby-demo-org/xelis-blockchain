@@ -1,0 +1,71 @@
+# TrueNorth pipeline configuration — xelis-blockchain (Rust cargo workspace).
+# Mirrors snoby-demo-org/veruscoin's shape: required-class scans day one
+# (FR-58/71, never deferrable) + a BLOCKING build leg, because the project has
+# a canonical build that must produce a binary on every commit.
+#
+#   mode: required  — always on, hard-stops on failure (FR-59/71)
+#   mode: blocking  — blocks unless a declared exception exists (FR-13)
+#   mode: advisory  — feeds the error budget, never blocks (FR-59/60)
+
+pipeline:
+  module: github.com/snoby-demo-org/dagger-checks@v1.1.1   # language-agnostic scans (pinned FR-14)
+  registry: zot.viporlab.net/demo
+
+planes:
+  build: k8s-runner
+  test: k8s-runner
+
+webhook:
+  cit_handoff:
+    enabled: false
+    url: ""
+    auth_secret: ""
+
+checks:
+  # ---- required class (day one, FR-58) ----
+  secrets-scan:      { enabled: true, mode: required, tier: fast, plane: build, applies: [any] }
+  pii-scan:          { enabled: true, mode: required, tier: fast, plane: build, applies: [any] }
+  private-key-check: { enabled: true, mode: required, tier: fast, plane: build, applies: [any] }
+  # ---- BUILD LEG (not a scan check): cargo build through the repo Dockerfile.
+  # Kaniko-style docker build in-engine: builder stage (cargo-chef) -> artifact
+  # gate on target/release/xelis_daemon -> syft SBOM + grype CVE gate ->
+  # (staging publish declared in the rust-build block below).
+  build:
+    enabled: true
+    mode: blocking
+    tier: heavy
+    plane: build
+    applies: [rust]
+    module: github.com/snoby-demo-org/dagger-checks-rust@v0.1.0
+    scan:
+      enabled: true
+      fail_on: high,critical
+      ignore_unfixed: true
+      sbom_repo: registry.viporlab.net/demo/xelis-sbom
+  # ---- not applicable to this repo ----
+  test:              { enabled: false, mode: blocking, tier: fast, plane: test,  applies: [any] }
+  # clippy compiles the workspace; enable advisory once a cold baseline exists.
+  lint:              { enabled: false, mode: advisory, tier: fast, plane: build, applies: [rust],
+                       module: github.com/snoby-demo-org/dagger-checks-rust@v0.1.0 }
+  # cargo fmt --check needs no compile — cheap advisory, flip to blocking when clean.
+  format:            { enabled: true, mode: advisory, tier: fast, plane: build, applies: [rust],
+                       module: github.com/snoby-demo-org/dagger-checks-rust@v0.1.0 }
+  sast:              { enabled: false, mode: advisory, tier: fast, plane: build, applies: [any] }
+  coverage:          { enabled: false, mode: advisory, tier: fast, plane: test,  applies: [any] }
+  sbom:              { enabled: false, mode: advisory, tier: fast, plane: build, applies: [any] }
+
+# Rust build knobs — TOP LEVEL on purpose: keys under checks: are fanned out as
+# jobs by the harness (a checks.<key> dispatches a phantom `dagger call <key>`),
+# so project layout lives in its own block that only the module reads.
+# artifact_path is inside the Dockerfile's `builder` stage (cargo-chef image with
+# a shell, so the ELF-magic + --version probes can exec).
+rust-build:
+  # ARG `app` = the cargo BIN target (the Dockerfile runs `--bin $app`), not
+  # the short directory name: upstream's docker-publish matrix passes
+  # daemon/miner/wallet and fails cargo-chef with "No workspace package or
+  # binary target named 'daemon'" — the bins are xelis_daemon/xelis_miner/xelis_wallet.
+  app: xelis_daemon
+  binary: xelis_daemon
+  dockerfile: Dockerfile
+  target: builder
+  artifact_path: /tmp/xelis-build/target/release/xelis_daemon

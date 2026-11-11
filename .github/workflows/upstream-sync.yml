@@ -1,0 +1,93 @@
+name: upstream-sync
+
+# Xelis upstream sync: ff the inert `master` mirror to upstream master,
+# then open a merge PR into `ours`. Master is a pristine upstream mirror —
+# nothing else may write it. Merge PRs are labeled deep-scan (heavy tier);
+# conflicted merges are committed with conflict markers + merge-conflict label
+# and are ALWAYS resolved by hand. Never auto-resolve.
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 7 * * 1" # weekly, Monday 07:00 UTC
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  sync:
+    runs-on: k8s-runner
+    steps:
+      - name: Checkout fork (full history + tags)
+        uses: actions/checkout@v4
+        with:
+          ref: ours
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Fetch upstream
+        run: |
+          git remote add upstream https://github.com/xelis-project/xelis-blockchain.git
+          git fetch upstream master --tags --no-tags 2>/dev/null || git fetch upstream master
+          UP=$(git rev-parse upstream/master)
+          OURS=$(git rev-parse origin/ours)
+          echo "upstream_master=$UP" >> "$GITHUB_ENV"
+          echo "ours=$OURS" >> "$GITHUB_ENV"
+
+      - name: Fast-forward master mirror
+        run: |
+          git fetch origin master
+          CUR=$(git rev-parse origin/master)
+          UP="${{ env.upstream_master }}"
+          if [ "$CUR" = "$UP" ]; then
+            echo "Mirror already at upstream master ($UP) - nothing to do."
+            echo "moved=false" >> "$GITHUB_ENV"
+            exit 0
+          fi
+          if ! git merge-base --is-ancestor "$CUR" "$UP"; then
+            echo "::error::master mirror has diverged from upstream - refusing non-ff update. Manual inspection required."
+            exit 1
+          fi
+          git push origin "${UP}:refs/heads/master"
+          echo "moved=true" >> "$GITHUB_ENV"
+          SHORT=$(git rev-parse --short "$UP")
+          echo "short=$SHORT" >> "$GITHUB_ENV"
+
+      - name: Merge into ours + open PR
+        if: env.moved == 'true'
+        run: |
+          git config user.name "xelis-sync"
+          git config user.email "xelis-sync@users.noreply.github.com"
+          git checkout -q -B "sync/upstream-${{ env.short }}" origin/ours
+          LABEL="clean"
+          if git merge --no-ff "origin/master" -m "merge upstream master ${{ env.short }} into ours"; then
+            echo "Clean merge."
+          else
+            # Stage conflict markers AS-IS; a human resolves them on the PR branch.
+            git add -A
+            git commit -q -m "merge upstream master ${{ env.short }} into ours (CONFLICTS - manual resolution required)"
+            LABEL="merge-conflict"
+            echo "Conflicted merge committed with markers."
+          fi
+          git push -q origin "sync/upstream-${{ env.short }}"
+          gh label create deep-scan --color 1d76db --force 2>/dev/null || true
+          gh label create merge-conflict --color d93f0b --force 2>/dev/null || true
+          if [ "$LABEL" = "merge-conflict" ]; then
+            NOTE="**Conflicts are committed with markers on this branch - resolve by hand, never auto-resolve.**"
+          else
+            NOTE="Clean merge."
+          fi
+          gh pr create \
+            --base ours \
+            --head "sync/upstream-${{ env.short }}" \
+            --title "sync: upstream master ${{ env.short }}" \
+            --label "$LABEL" \
+            --body "Automated upstream sync. master ff'd to ${{ env.upstream_master }}.
+
+          Merge type: **$LABEL**. $NOTE
+
+          Acceptance: heavy-tier run (deep-scan) must pass - full cargo workspace compile + artifact gate."
+          echo "PR opened ($LABEL)"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

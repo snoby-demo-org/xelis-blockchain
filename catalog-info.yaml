@@ -1,0 +1,19 @@
+---
+apiVersion: backstage.io/v1alpha1
+kind: Component
+metadata:
+  name: xelis-blockchain
+  description: Private Xelis fork — Rust blockDAG with homomorphic encryption and smart contracts (workspace daemon / wallet / miner / common)
+  tags:
+    - blockchain
+    - rust
+  annotations:
+    github.com/project-slug: snoby-demo-org/xelis-blockchain
+    backstage.io/source-location: url:https://github.com/snoby-demo-org/xelis-blockchain/tree/ours/
+    truenorth.io/pipeline: snoby-demo-org/goldenpath/.github/workflows/truenorth.yml@truenorth-v2.9
+    truenorth.io/build-module: github.com/snoby-demo-org/dagger-checks-rust@v0.1.0
+spec:
+  type: service
+  lifecycle: production
+  owner: user:default/snoby
+  system: goldenpath

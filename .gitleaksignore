@@ -1,0 +1,12 @@
+# .gitleaksignore — triaged false positives for snoby-demo-org/xelis-blockchain.
+# Populated ONLY from real scan findings of the TrueNorth secrets-scan leg
+# (required class): each entry is <file>:<rule-id>:<fingerprint> as reported by
+# the job log. Upstream test fixtures / published public constants get triaged
+# here; anything that looks like a live credential does NOT — rotate it.
+#
+# NOTE (gitleaks v8.30): fingerprints embed the scan-target path, so entries
+# must be listed in BOTH forms when the module scans a mounted /src:
+#   src/foo.rs:<rule>:<hash>      (local `gitleaks dir .`)
+#   /src/src/foo.rs:<rule>:<hash> (CI exec)
+#
+# Empty after the first green run = nothing to triage.

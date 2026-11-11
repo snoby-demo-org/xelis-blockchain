@@ -1,0 +1,106 @@
+name: Release Image
+
+# Phase 7 — build the release image via buildx (runner has docker-in-docker)
+# and push DUAL tags per the registry decision, one repo per app:
+#   registry.viporlab.net/demo/xelis:<ver>-<app>   (homelab zot)
+#   iotapi322/xelis:<ver>-<app>                    (Docker Hub)
+# Registry cache per app: unchanged Cargo.lock => cargo-chef cook layer cache
+# hit (mode=max cache manifest in zot). First run cold (~30-60 min), then warm.
+#
+# The repo Dockerfile takes ARG app (daemon|miner|wallet) + ARG commit_hash and
+# ships a distroless runtime image with the binary at /var/run/xelis/xelis.
+#
+# Secrets required on this repo before the first run (Docker Hub only):
+#   DOCKERHUB_USER / DOCKERHUB_TOKEN — Docker Hub push credentials
+# zot (registry.viporlab.net) has auth DISABLED (verified live on 10.0.0.83:
+# auth: None, anonymous /v2/_catalog works) — no zot credentials needed.
+# BuildKit does NOT use docker certs.d — the viporlab CA situation is handled
+# with insecure=true for the trusted LAN (zot-registry-push skill pattern).
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Image tag override (defaults to the branch/ref name)'
+        required: false
+        default: ''
+
+permissions:
+  contents: read
+
+jobs:
+  release:
+    runs-on: k8s-runner
+    timeout-minutes: 240
+    strategy:
+      fail-fast: false
+      matrix:
+        # bin = the cargo target passed as Dockerfile ARG app; name = image tag suffix
+        include:
+          - { bin: xelis_daemon, name: daemon }
+          - { bin: xelis_miner,  name: miner }
+          - { bin: xelis_wallet, name: wallet }
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Create buildx builder (zot insecure on trusted LAN)
+        run: |
+          cat > buildkitd.toml <<'EOF'
+          [registry."registry.viporlab.net"]
+            http = false
+            insecure = true
+          EOF
+          docker buildx create --name release --driver docker-container \
+            --config buildkitd.toml --use
+          docker buildx inspect release --bootstrap
+
+      - name: Log in to Docker Hub (zot is auth-free)
+        run: |
+          echo "${{ secrets.DOCKERHUB_TOKEN }}" | docker login docker.io \
+            -u "${{ secrets.DOCKERHUB_USER }}" --password-stdin
+
+      - name: Build and push (dual registry, registry cache)
+        run: |
+          VER="${{ github.event.inputs.tag || github.ref_name }}"
+          APP="${{ matrix.bin }}"
+          SHORT="${{ matrix.name }}"
+          echo "VER=$VER" >> "$GITHUB_ENV"
+          echo "APP=$APP" >> "$GITHUB_ENV"
+          docker buildx build \
+            -f Dockerfile \
+            --build-arg app="$APP" \
+            --build-arg commit_hash="${{ github.sha }}" \
+            -t "registry.viporlab.net/demo/xelis:${VER}-${SHORT}" \
+            -t "iotapi322/xelis:${VER}-${SHORT}" \
+            --cache-from "type=registry,ref=registry.viporlab.net/demo/xelis-buildcache-${SHORT}" \
+            --cache-to "type=registry,ref=registry.viporlab.net/demo/xelis-buildcache-${SHORT},mode=max,ignore-error=true" \
+            --push \
+            --progress=plain \
+            . 2>&1 | tee "build-${SHORT}.log"
+          exit "${PIPESTATUS[0]}"
+
+      - name: Verify zot push
+        run: |
+          sleep 5
+          # -k: zot serves the viporlab internal CA; the runner pod does not
+          # trust it (trusted-LAN pattern, same as the buildkitd.toml above).
+          TAGS=$(curl -skf "https://registry.viporlab.net/v2/demo/xelis/tags/list")
+          echo "$TAGS"
+          echo "$TAGS" | grep -q "\"${VER}-${SHORT}\"" || {
+            echo "::error::tag ${VER}-${SHORT} not found in registry.viporlab.net/demo/xelis"
+            exit 1
+          }
+
+      - name: Upload build log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-build-log-${{ matrix.name }}
+          path: build-${{ matrix.name }}.log
+          if-no-files-found: warn
