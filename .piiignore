@@ -2,9 +2,9 @@
 # v1.1.2+). One path or glob per line, relative to the repo root, '#' comments.
 #
 # API.md is upstream's generated JSON-RPC API reference: every example carries
-# millisecond epoch timestamps (1711665303229, 1746147705443, …) which
-# Presidio's CREDIT_CARD recognizer scores 1.0 (Luhn-plausible 13-digit runs).
-# They are timestamps, not card numbers — 8 strict false positives measured on
-# the first full-tree scan (run 42936588470, 2026-11-11). Excluded as a whole
-# file; nothing else is. Do NOT add real PII here — rotate it instead.
+# millisecond epoch timestamps, which Presidio's CREDIT_CARD recognizer scores
+# 1.0 (Luhn-plausible long digit runs). Eight strict false positives were
+# measured on the first full-tree scan (deep-scan run, 2026-11-11). They are
+# timestamps, not card numbers. Excluded as a whole file; nothing else is.
+# Do NOT add real PII here — rotate it instead.
 API.md
