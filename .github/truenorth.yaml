@@ -8,7 +8,10 @@
 #   mode: advisory  — feeds the error budget, never blocks (FR-59/60)
 
 pipeline:
-  module: github.com/snoby-demo-org/dagger-checks@v1.1.1   # language-agnostic scans (pinned FR-14)
+  # v1.1.2 adds the repo-owned .piiignore exclusion list (see .piiignore —
+  # upstream API.md timestamps tripped the CREDIT_CARD recognizer on the
+  # full-tree deep-scan). Absent file = unchanged behavior for other repos.
+  module: github.com/snoby-demo-org/dagger-checks@v1.1.2   # language-agnostic scans (pinned FR-14)
   registry: zot.viporlab.net/demo
 
 planes:
