@@ -11,12 +11,12 @@ pipeline:
   # v1.1.2 adds the repo-owned .piiignore exclusion list (see .piiignore —
   # upstream API.md timestamps tripped the CREDIT_CARD recognizer on the
   # full-tree deep-scan). Absent file = unchanged behavior for other repos.
-  module: github.com/snoby-demo-org/dagger-checks@v1.1.2   # language-agnostic scans (pinned FR-14)
+  module: github.com/snoby-demo-org/dagger-checks@v2.0.0   # language-agnostic scans (pinned FR-14)
   registry: zot.viporlab.net/demo
 
 planes:
-  build: k8s-runner
-  test: k8s-runner
+  build: arc-beta
+  test: arc-beta
 
 webhook:
   cit_handoff:
@@ -44,7 +44,7 @@ checks:
     tier: fast
     plane: build
     applies: [rust]
-    module: github.com/snoby-demo-org/dagger-checks-rust@v0.2.1
+    module: github.com/snoby-demo-org/dagger-checks-rust@v2.0.0
     # Two images per commit (daemon + wallet), one runner pod each; both digests
     # belong to the SAME Freight, so a promotion carries the variant->digest set
     # and prod is only reachable when both are green (doctrine: commit is the
@@ -63,12 +63,12 @@ checks:
   test:              { enabled: false, mode: blocking, tier: fast, plane: test,  applies: [any] }
   # clippy compiles the workspace; enable advisory once a cold baseline exists.
   lint:              { enabled: false, mode: advisory, tier: fast, plane: build, applies: [rust],
-                       module: github.com/snoby-demo-org/dagger-checks-rust@v0.2.1 }
+                       module: github.com/snoby-demo-org/dagger-checks-rust@v2.0.0 }
   # cargo fmt --check needs no compile, but upstream is not rustfmt-clean
   # (8121 diffs measured 2026-11-11) — enable once the workspace is formatted;
   # the module's format function is proven working against it.
   format:            { enabled: false, mode: advisory, tier: fast, plane: build, applies: [rust],
-                       module: github.com/snoby-demo-org/dagger-checks-rust@v0.2.1 }
+                       module: github.com/snoby-demo-org/dagger-checks-rust@v2.0.0 }
   sast:              { enabled: false, mode: advisory, tier: fast, plane: build, applies: [any] }
   coverage:          { enabled: false, mode: advisory, tier: fast, plane: test,  applies: [any] }
   sbom:              { enabled: false, mode: advisory, tier: fast, plane: build, applies: [any] }
